@@ -3,18 +3,14 @@ import six
 import sys
 import json
 import argparse
-from functools import partial
 from itertools import chain, count
 
-from _pytest.compat import getimfunc
-from _pytest.python import transfer_markers
 from _pytest.unittest import UnitTestCase, TestCaseFunction
 
 from attrdict import AttrDict
 from rotest.common import core_log
 from rotest.core.result.result import Result
 from rotest.cli.discover import is_test_class
-from rotest.core.abstract_test import AbstractTest
 from rotest.core.result.result import get_result_handlers
 from rotest.core.models import CaseData, RunData, SuiteData
 from rotest.core import TestSuite, TestCase, TestFlow, TestBlock
@@ -26,7 +22,6 @@ from rotest.core.runner import (DEFAULT_CONFIG_PATH, parse_config_file,
 
 
 class RotestRunContext(object):
-    HAS_TESTS = False
     CONFIG = None
     RESULT = None
     RUN_DATA = None
@@ -60,6 +55,15 @@ def pytest_addoption(parser):
         help="Output handlers separated by comma. Options: {}".format(
             ", ".join(get_result_handlers()))
     )
+    group.addoption(
+        '--ipdbugger',
+        action='store_true',
+        dest='ipdbugger',
+        default=False,
+        help="Enter ipdb debug mode upon any test exception, "
+             "and enable entering debug mode on Ctrl-Pause "
+             "(Windows) or Ctrl-Quit (Linux)."
+    )
 
 
 class RotestTestWrapper(UnitTestCase):
@@ -90,6 +94,7 @@ class RotestMethodWrapper(TestCaseFunction):
         self._obj = getattr(self._testcase, self.name)
         if hasattr(self._testcase, "setup_method"):
             self._testcase.setup_method(self._obj)
+
         if hasattr(self, "_request"):
             self._request._fillfixtures()
 
@@ -98,40 +103,29 @@ class RotestMethodWrapper(TestCaseFunction):
 
     def startTest(self, testcase):
          RotestRunContext.RESULT.startTest(testcase)
+         super(RotestMethodWrapper, self).startTest(testcase)
 
-    # def addError(self, testcase, rawexcinfo):
-    #     self._addexcinfo(rawexcinfo)
-    #
-    # def addFailure(self, testcase, rawexcinfo):
-    #     self._addexcinfo(rawexcinfo)
-    #
-    # def addSkip(self, testcase, reason):
-    #     try:
-    #         skip(reason)
-    #     except skip.Exception:
-    #         self._skipped_by_mark = True
-    #         self._addexcinfo(sys.exc_info())
-    #
-    # def addExpectedFailure(self, testcase, rawexcinfo, reason=""):
-    #     try:
-    #         xfail(str(reason))
-    #     except xfail.Exception:
-    #         self._addexcinfo(sys.exc_info())
-    #
-    # def addUnexpectedSuccess(self, testcase, reason=""):
-    #     self._unexpectedsuccess = reason
-    #
-    # def addSuccess(self, testcase):
-    #     pass
-    #
-    # def stopTest(self, testcase):
-    #     pass
+    def addError(self, testcase, rawexcinfo):
+        RotestRunContext.RESULT.addError(testcase, rawexcinfo)
+        super(RotestMethodWrapper, self).startError(testcase, rawexcinfo)
 
+    def addFailure(self, testcase, rawexcinfo):
+        RotestRunContext.RESULT.addFailure(testcase, rawexcinfo)
+        super(RotestMethodWrapper, self).addFailure(testcase, rawexcinfo)
+
+    def addSkip(self, testcase, reason):
+        RotestRunContext.RESULT.addSkip(testcase, reason)
+        super(RotestMethodWrapper, self).addSkip(testcase, reason)
+
+    def addExpectedFailure(self, testcase, rawexcinfo, reason=""):
+        RotestRunContext.RESULT.addExpectedFailure(testcase, rawexcinfo)
+        super(RotestMethodWrapper, self).addExpectedFailure(testcase,
+                                                            rawexcinfo)
+        
 
 def pytest_pycollect_makeitem(collector, name, obj):
     if isinstance(obj, type) and issubclass(obj, (TestSuite, TestCase, TestFlow, TestBlock)):
         if is_test_class(obj):
-            RotestRunContext.HAS_TESTS = True
             return RotestTestWrapper(name, collector)
 
         else:
@@ -143,15 +137,13 @@ def pytest_sessionstart(session):
     RotestRunContext.CONFIG = AttrDict(chain(
         six.iteritems(parse_config_file(DEFAULT_CONFIG_PATH)),
         six.iteritems(parse_config_file(config.option.config_path)),
-        filter_valid_values({'outputs': config.option.outputs})
-        # filter_valid_values(vars(config)),
+        filter_valid_values({'outputs': config.option.outputs,
+                             'debug': config.option.ipdbugger})
     ))
 
     RotestRunContext.RUN_DATA = RunData(
         config=json.dumps(RotestRunContext.CONFIG))
     RotestRunContext.RESOURCE_MANAGER = ClientResourceManager(logger=core_log)
-
-    # config.__dict__.update(RotestRunContext.CONFIG)
 
     class AlmightySuite(TestSuite):
         components = [TestCase]
@@ -179,14 +171,11 @@ def pytest_sessionstart(session):
 
 
 def pytest_collection_finish(session):
-    RotestRunContext.RESULT.startTestRun()
+    if RotestRunContext.RESULT:
+        RotestRunContext.RESULT.startTestRun()
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """Finalize the test runner.
-
-    * Removes duplicated test DB entries.
-    """
     if RotestRunContext.RESULT:
         RotestRunContext.RESULT.stopTestRun()
 
