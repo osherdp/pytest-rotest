@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+"""Pytest plugin functions and utils."""
 import six
 import sys
 import json
@@ -9,11 +10,12 @@ from _pytest.unittest import UnitTestCase, TestCaseFunction
 
 from attrdict import AttrDict
 from rotest.common import core_log
+from rotest.core import TestSuite, TestCase
 from rotest.core.result.result import Result
 from rotest.cli.discover import is_test_class
+from rotest.core.abstract_test import AbstractTest
 from rotest.core.result.result import get_result_handlers
 from rotest.core.models import CaseData, RunData, SuiteData
-from rotest.core import TestSuite, TestCase, TestFlow, TestBlock
 from rotest.management.client.manager import ClientResourceManager
 from rotest.cli.client import parse_outputs_option, filter_valid_values
 from rotest.core.runner import (DEFAULT_CONFIG_PATH, parse_config_file,
@@ -22,13 +24,22 @@ from rotest.core.runner import (DEFAULT_CONFIG_PATH, parse_config_file,
 
 
 class RotestRunContext(object):
+    """Rotest global fields, that would normally be instantiated by the runner.
+
+    Attributes:
+        CONFIG (AttrDict): run configuration.
+        RESULT (Result): result object that contains the output handlers.
+        RUN_DATA (RunData): run data model instance.
+        MAIN_TEST (TestSuite): dummy TestSuite to contain the tests found.
+        INDEXER (count): tests identifier indexer.
+        RESOURCE_MANAGER (ClientResourceManager): shared resource manager.
+    """
     CONFIG = None
     RESULT = None
     RUN_DATA = None
     MAIN_TEST = None
     INDEXER = count()
     RESOURCE_MANAGER = None
-    COLLECTED_CLASSES = []
 
 
 class OutputHandlersParseAction(argparse.Action):
@@ -38,6 +49,7 @@ class OutputHandlersParseAction(argparse.Action):
 
 
 def pytest_addoption(parser):
+    """Add CMD options from Rotest to Pytest."""
     group = parser.getgroup('rotest')
 
     group.addoption(
@@ -67,29 +79,40 @@ def pytest_addoption(parser):
 
 
 class RotestTestWrapper(UnitTestCase):
+    """Wrapper for a Rotest test class."""
     def collect(self):
+        """Wrap the normal collection to yield initialized Rotest tests."""
         for test_function in super(RotestTestWrapper, self).collect():
             test_wrapper = RotestMethodWrapper(test_function.name, self,
                                                test_function.obj)
 
-            test_wrapper._testcase = self.obj(test_function.name,
-                         parent=RotestRunContext.MAIN_TEST,
-                         config=RotestRunContext.CONFIG,
-                         indexer=RotestRunContext.INDEXER,
-                         run_data=RotestRunContext.RUN_DATA,
-                         skip_init=RotestRunContext.CONFIG.skip_init,
-                         save_state=RotestRunContext.CONFIG.save_state,
-                         enable_debug=RotestRunContext.CONFIG.debug,
-                         base_work_dir=RotestRunContext.MAIN_TEST.work_dir,
-                         resource_manager=RotestRunContext.RESOURCE_MANAGER)
+            # Create the test instance in advance (this is required for various
+            # output handlers that assume that all the tests exists at start)
+            if not self.config.option.collectonly:
+                test_wrapper._testcase = self.obj(test_function.name,
+                             parent=RotestRunContext.MAIN_TEST,
+                             config=RotestRunContext.CONFIG,
+                             indexer=RotestRunContext.INDEXER,
+                             run_data=RotestRunContext.RUN_DATA,
+                             skip_init=RotestRunContext.CONFIG.skip_init,
+                             save_state=RotestRunContext.CONFIG.save_state,
+                             enable_debug=RotestRunContext.CONFIG.debug,
+                             base_work_dir=RotestRunContext.MAIN_TEST.work_dir,
+                             resource_manager=RotestRunContext.RESOURCE_MANAGER)
 
-            test_wrapper._testcase.result = RotestRunContext.RESULT
+                test_wrapper._testcase.result = RotestRunContext.RESULT
 
             yield test_wrapper
 
 
 class RotestMethodWrapper(TestCaseFunction):
+    """Rotest test instance wrapped.
+
+    This wrapper gets most of the test's event by the pytest-unittest framework
+    and propagates them to the Rotest's result object.
+    """
     def setup(self):
+        """Override the setup method to NOT create a test instance again."""
         self._fix_unittest_skip_decorator()
         self._obj = getattr(self._testcase, self.name)
         if hasattr(self._testcase, "setup_method"):
@@ -99,6 +122,7 @@ class RotestMethodWrapper(TestCaseFunction):
             self._request._fillfixtures()
 
     def runtest(self):
+        """Run the test with the global Rotest result object."""
         return self._testcase(result=RotestRunContext.RESULT)
 
     def startTest(self, testcase):
@@ -124,7 +148,13 @@ class RotestMethodWrapper(TestCaseFunction):
         
 
 def pytest_pycollect_makeitem(collector, name, obj):
-    if isinstance(obj, type) and issubclass(obj, (TestSuite, TestCase, TestFlow, TestBlock)):
+    """Override collection of Rotest classes.
+
+    This returns instances of RotestTestWrapper where needed, and disregards
+    classes that are abstract. Other objects (such as pytest test functions
+    and old unittest classes) will be collected normally.
+    """
+    if isinstance(obj, type) and issubclass(obj, (TestSuite, AbstractTest)):
         if is_test_class(obj):
             return RotestTestWrapper(name, collector)
 
@@ -133,6 +163,7 @@ def pytest_pycollect_makeitem(collector, name, obj):
 
 
 def pytest_sessionstart(session):
+    """Read and initialize Rotest global fields."""
     config = session.config
     RotestRunContext.CONFIG = AttrDict(chain(
         six.iteritems(parse_config_file(DEFAULT_CONFIG_PATH)),
@@ -141,9 +172,12 @@ def pytest_sessionstart(session):
                              'debug': config.option.ipdbugger})
     ))
 
-    RotestRunContext.RUN_DATA = RunData(
-        config=json.dumps(RotestRunContext.CONFIG))
-    RotestRunContext.RESOURCE_MANAGER = ClientResourceManager(logger=core_log)
+    if not session.config.option.collectonly:
+        RotestRunContext.RUN_DATA = RunData(
+            config=json.dumps(RotestRunContext.CONFIG))
+
+        RotestRunContext.RESOURCE_MANAGER = ClientResourceManager(
+            logger=core_log)
 
     class AlmightySuite(TestSuite):
         components = [TestCase]
@@ -163,19 +197,24 @@ def pytest_sessionstart(session):
     main_test.data = SuiteData(name=main_test.name,
                                run_data=RotestRunContext.RUN_DATA)
 
-    RotestRunContext.RUN_DATA.main_test = main_test.data
-
-    RotestRunContext.RESULT = Result(stream=sys.stdout,
+    if not session.config.option.collectonly:
+        RotestRunContext.RUN_DATA.main_test = main_test.data
+        RotestRunContext.RESULT = Result(stream=sys.stdout,
                                      outputs=RotestRunContext.CONFIG.outputs,
                                      main_test=main_test)
 
 
 def pytest_collection_finish(session):
-    if RotestRunContext.RESULT:
+    """Start the test run in the global Rotest result object."""
+    if not session.config.option.collectonly and RotestRunContext.RESULT:
         RotestRunContext.RESULT.startTestRun()
 
 
 def pytest_sessionfinish(session, exitstatus):
+    """Stop the test run and close the resource manager."""
+    if session.config.option.collectonly:
+        return
+
     if RotestRunContext.RESULT:
         RotestRunContext.RESULT.stopTestRun()
 
