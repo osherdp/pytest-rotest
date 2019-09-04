@@ -13,14 +13,12 @@ from rotest.common import core_log
 from rotest.core import TestSuite, TestCase
 from rotest.core.result.result import Result
 from rotest.cli.discover import is_test_class
+from rotest.core.models import RunData, SuiteData
 from rotest.core.abstract_test import AbstractTest
 from rotest.core.result.result import get_result_handlers
-from rotest.core.models import CaseData, RunData, SuiteData
 from rotest.management.client.manager import ClientResourceManager
+from rotest.core.runner import DEFAULT_CONFIG_PATH, parse_config_file
 from rotest.cli.client import parse_outputs_option, filter_valid_values
-from rotest.core.runner import (DEFAULT_CONFIG_PATH, parse_config_file,
-                                update_resource_requests,
-                                parse_resource_identifiers)
 
 
 class RotestRunContext(object):
@@ -89,16 +87,17 @@ class RotestTestWrapper(UnitTestCase):
             # Create the test instance in advance (this is required for various
             # output handlers that assume that all the tests exists at start)
             if not self.config.option.collectonly:
-                test_wrapper._testcase = self.obj(test_function.name,
-                             parent=RotestRunContext.MAIN_TEST,
-                             config=RotestRunContext.CONFIG,
-                             indexer=RotestRunContext.INDEXER,
-                             run_data=RotestRunContext.RUN_DATA,
-                             skip_init=RotestRunContext.CONFIG.skip_init,
-                             save_state=RotestRunContext.CONFIG.save_state,
-                             enable_debug=RotestRunContext.CONFIG.debug,
-                             base_work_dir=RotestRunContext.MAIN_TEST.work_dir,
-                             resource_manager=RotestRunContext.RESOURCE_MANAGER)
+                test_wrapper._testcase = self.obj(
+                    test_function.name,
+                    parent=RotestRunContext.MAIN_TEST,
+                    config=RotestRunContext.CONFIG,
+                    indexer=RotestRunContext.INDEXER,
+                    run_data=RotestRunContext.RUN_DATA,
+                    skip_init=RotestRunContext.CONFIG.skip_init,
+                    save_state=RotestRunContext.CONFIG.save_state,
+                    enable_debug=RotestRunContext.CONFIG.debug,
+                    base_work_dir=RotestRunContext.MAIN_TEST.work_dir,
+                    resource_manager=RotestRunContext.RESOURCE_MANAGER)
 
                 test_wrapper._testcase.result = RotestRunContext.RESULT
 
@@ -126,8 +125,8 @@ class RotestMethodWrapper(TestCaseFunction):
         return self._testcase(result=RotestRunContext.RESULT)
 
     def startTest(self, testcase):
-         RotestRunContext.RESULT.startTest(testcase)
-         super(RotestMethodWrapper, self).startTest(testcase)
+        RotestRunContext.RESULT.startTest(testcase)
+        super(RotestMethodWrapper, self).startTest(testcase)
 
     def addError(self, testcase, rawexcinfo):
         RotestRunContext.RESULT.addError(testcase, rawexcinfo)
@@ -145,7 +144,7 @@ class RotestMethodWrapper(TestCaseFunction):
         RotestRunContext.RESULT.addExpectedFailure(testcase, rawexcinfo)
         super(RotestMethodWrapper, self).addExpectedFailure(testcase,
                                                             rawexcinfo)
-        
+
 
 def pytest_pycollect_makeitem(collector, name, obj):
     """Override collection of Rotest classes.
@@ -199,9 +198,10 @@ def pytest_sessionstart(session):
 
     if not session.config.option.collectonly:
         RotestRunContext.RUN_DATA.main_test = main_test.data
-        RotestRunContext.RESULT = Result(stream=sys.stdout,
-                                     outputs=RotestRunContext.CONFIG.outputs,
-                                     main_test=main_test)
+        RotestRunContext.RESULT = Result(
+            stream=sys.stdout,
+            outputs=RotestRunContext.CONFIG.outputs,
+            main_test=main_test)
 
 
 def pytest_collection_finish(session):
