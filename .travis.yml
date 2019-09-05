@@ -1,34 +1,29 @@
-# Config file for automatic testing at travis-ci.org
-
-sudo: false
 language: python
-
-matrix:
-    include:
-      - python: 2.7
-        env: TOX_ENV=py27
-      - python: 3.4
-        env: TOX_ENV=py34
-      - python: 3.5
-        env: TOX_ENV=py35
-      - python: 3.6
-        env: TOX_ENV=py36
-      - python: 3.7
-        env: TOX_ENV=py37
-      - python: pypy
-        env: TOX_ENV=pypy
-      - python: 3.6
-        env: TOX_ENV=flake8
-
-install:
-  - pip install tox
-
-script:
-  - tox -e $TOX_ENV
-
-before_cache:
-  - rm -rf $HOME/.cache/pip/log
-
-cache:
-  directories:
-    - $HOME/.cache/pip
+sudo: required
+dist: xenial
+stages:
+- test
+- name: deploy
+  if: tag IS present
+python:
+- '2.7'
+- '3.6'
+- '3.7'
+install: pip install tox coveralls
+script: tox -e $(echo py$TRAVIS_PYTHON_VERSION | tr -d .)
+after_success: coveralls
+jobs:
+  include:
+  - stage: deploy
+    python: '3.6'
+    install: skip
+    script: skip
+    deploy:
+      stage: deploy
+      provider: pypi
+      on:
+        tags: true
+      distributions: sdist bdist_wheel
+      user: gregoil
+      password:
+        secure: CqXwrXClTJkslXQvwneLuvzqJc0N302sBDj9gH6ePtmKknC7Sam3po+Ui+rQPo+D4Gwrqwf7JRj7j5UFTtWnBzj90Qcf66l8hg2tnNawp2RCnly85S7MvRsB3yOmkletKX7TQn3VjnnZFuPebuBVdQhJYQu0FLTHELvyx22/9oX8KtWR3xIvibRdGbfWVsAosF5Qu1wstrwh0Ljpj4uHl0nxaqddvUIK43MdxJ/uWG0+6P3xqg4/aCquFzJ0CRiLBhYVKGKP5hIf07JeOqgqX5CCLzUHuQQS0g7sgkrU+n27i4udZIS6sD5KaGSzNcVr3KkY2qKmkphBsbRjovv7QN0PAkoax98dvVYV7leojsvuR5ztA53CDTrkL+vJRthOEeBRkcr6jB99zNulnHn/A8RAZDnbqydp93Hx8XS8LSEwRDzcXMwsHLKFxRFWGT1HBisox96OT4v3/PgF7JDHWI2Y/xjuLIxDj5Yd6X7gTTDay6G9koFS2PyZuPY9lo76icZTOaWZ/G1hdbuo+lOjNHkE55XP+f3nKNB8BHk8a/l0ilOGNDqYZ7YI9ZR3+t6CQZfChlMlxMtcAY0F5TbtGZfnq65W54j3JkRYJuknVFaBCq6Tg04d8qoixkFmq8ub3qFlGK96kZcQqxLb8yDlVpZXmbv8XzllehyHsVA3PgA=
