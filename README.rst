@@ -10,12 +10,12 @@ pytest-rotest
     :target: https://pypi.org/project/pytest-rotest
     :alt: Python versions
 
-.. image:: https://travis-ci.org/gregoil/pytest-rotest.svg?branch=master
-    :target: https://travis-ci.org/gregoil/pytest-rotest
+.. image:: https://travis-ci.org/UnDarkle/pytest-rotest.svg?branch=master
+    :target: https://travis-ci.org/UnDarkle/pytest-rotest
     :alt: See Build Status on Travis CI
 
-.. image:: https://ci.appveyor.com/api/projects/status/github/gregoil/pytest-rotest?branch=master
-    :target: https://ci.appveyor.com/project/gregoil/pytest-rotest/branch/master
+.. image:: https://ci.appveyor.com/api/projects/status/github/UnDarkle/pytest-rotest?branch=master
+    :target: https://ci.appveyor.com/project/UnDarkle/pytest-rotest/branch/master
     :alt: See Build Status on AppVeyor
 
 Integration with rotest
